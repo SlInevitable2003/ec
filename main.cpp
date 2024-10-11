@@ -280,16 +280,23 @@ class Fp {
     
     // Barret reduction parameters
     BigInt<t+1> mu{0};
-    BigInt<t> pp{0};
+    // Montgomery reduction parameters
+    BigInt<t> pp{0}, np{0};
 public:
     // p must be a prime but we will not verify
     Fp(BigInt<t> p, BigInt<t> val) : p{p}, val{val} { assert(val < p); }
     void set_reduction_method(ReductionMethod rm_) { rm = rm_; }
     // mu must equal [2^{64*2t} / p] but we will not verify
     void set_Barret_mu(BigInt<t+1> mu_) { assert(rm == ReductionMethod::Barret); mu = mu_; }
+    // pp must equal -p^{-1} mod 2^{64*t} bust we will not verify
+    void set_Mont_pp(BigInt<t> pp_) { pp = pp_; }
 
     void print() const { val.print(); }
 
+    // helper function
+   BigInt<t> Mont(BigInt<t> xs, BigInt<t> ys) { return BigInt<t>::Montgomery(xs.mul(ys), p, pp); }
+
+    // basic arithmetic operation
     Fp<t> operator+(const Fp<t>& other) const 
     {
         assert(p == other.p);
@@ -320,6 +327,17 @@ public:
     }
 
     Fp<t> inverse() const { return {p, BigInt<t>::inverse(val, p)}; }
+    Fp<t> exponentiation(u1i bit_dec[], size_t l) {
+        assert(mu != BigInt<t+1>{0});
+        BigInt<2*t> lxs{0}, lA{0}; lA[t] = 1;
+        for (int i = 0; i < t; i++) lxs[i + t] = val[i];
+        BigInt<t> xs{BigInt<t>::reduction(lxs, p, mu)}, A{BigInt<t>::reduction(lA, p, mu)};
+        for (int i = l - 1; i >= 0; i--) {
+            A = Mont(A, A);
+            if (bit_dec[i] == 1) A = Mont(A, xs);
+        }
+        return {p, Mont(A, BigInt<t>{1})};
+    }
 };
 
 typedef Fp<2> fp128;
@@ -329,9 +347,12 @@ typedef Fp<8> fp512;
 int main(int argc, char *argv[])
 {
     u64i p_arr[4]  = {0xffffffffffffffff, 0x00000000ffffffff, 0x0000000000000000, 0xffffffff00000001};
+    u64i pp_arr[4] = {0x0000000000000001, 0x0000000100000000, 0x0000000000000000, 0xffffffff00000002};
     u64i mu_arr[5] = {0x0000000000000003, 0xfffffffeffffffff, 0xfffffffefffffffe, 0x00000000ffffffff, 0x0000000000000001};
     fp256 a{u256i{p_arr, 4}, u256i::sample()}, b{u256i{p_arr, 4}, u256i::sample()};
     a.set_Barret_mu(BigInt<5>{mu_arr, 5}), b.set_Barret_mu(BigInt<5>{mu_arr, 5});
+    a.set_Mont_pp(BigInt<4>{pp_arr, 4}), b.set_Mont_pp(BigInt<4>{pp_arr, 4});
+
     a.print(), b.print();
     (a + b).print();
     (a - b).print();
@@ -342,6 +363,13 @@ int main(int argc, char *argv[])
     fp256 c = a.inverse();
     c.print();
     (a * c).print();
+
+    u1i e[4] = {0, 0, 0, 1};
+    b = a.square(); b.set_Barret_mu(BigInt<5>{mu_arr, 5}); b.set_Mont_pp(BigInt<4>{pp_arr, 4});
+    b = b.square(); b.set_Barret_mu(BigInt<5>{mu_arr, 5}); b.set_Mont_pp(BigInt<4>{pp_arr, 4});
+    b = b.square(); b.set_Barret_mu(BigInt<5>{mu_arr, 5}); b.set_Mont_pp(BigInt<4>{pp_arr, 4});
+    b.print();
+    a.exponentiation(e, 4).print();
 
     return 0;
 }
